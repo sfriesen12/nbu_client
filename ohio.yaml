@@ -1,0 +1,13 @@
+    master_server: "ohcnnnobkup-master1"
+    media_server1: "ohcnnnobkup-media9"
+    media_server2: "ohcnnnobkup-media10"
+    license_key: ""
+    authorization_token: "NNKAFFKVJXZTZWNR"
+    cacert: "D0:90:AB:F7:C3:2F:06:36:23:77:56:3B:72:A5:56:68:9A:9F:2F:D4:1B:70:B7:D2:B9:74:66:CC:92:47:F4:81"
+
+    nbuhosts:
+      masterserver:
+       - 192.168.254.005 {{ master_server }}
+      mediaserver:
+       - 192.168.254.018 {{ media_server1 }}
+       - 192.168.254.019 {{ media_server2 }}

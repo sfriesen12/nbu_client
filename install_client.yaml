@@ -1,0 +1,125 @@
+#
+# This playbook copies Netbackup sofware and install on new client machine
+#
+#
+- hosts: ansi_test
+  become: yes
+  any_errors_fatal: true
+  vars:
+    nbutar: "nbu10client.tar"
+    netbackup_download_dir: "/var/tmp/nbu"
+
+  vars_files:
+   - /home/ansible/vars/ohio.yml
+
+  tasks:
+
+    - file:
+        path: /usr/openv
+        state: directory
+        mode: 0777
+
+    - file:
+        path: /var/tmp/nbu
+        state: directory
+        mode: 0777
+
+    - name: Identify the space available in /var/tmp
+      shell: df /var/tmp --output\=avail | tail -1
+      register: vartmp_space_available
+
+#    - fail:
+#        msg: /var/tmp/ does not have the minimu space required to continue ( 4 GB requested)
+#      failed_when: "vartmp_space_available.stdout | float < 4000000"
+#      tags: vardisk
+#      any_errors_fatal: true
+
+    - name: Identify the space available in /usr/openv
+      shell: df /usr/openv --output\=avail | tail -1
+      register: openv_space_available
+
+    - fail:
+        msg: /usr/openv does not have the minimim space required to continue ( 8Gb requested).
+      failed_when: "openv_space_available.stdout | float  < 3000000"
+      tags: openvdisk
+      any_errors_fatal: true
+
+
+    - name: copy NBU files
+      copy:
+        src:  "/home/ansible/software/Linux/{{ nbutar }}"
+        dest: "{{ netbackup_download_dir }}"
+        owner: root
+        group: root
+        mode: 0755
+    - name: copy InstallAnswer.conf
+      ansible.builtin.template:
+           src:  "/home/ansible/files/NBInstallAnswer.template"
+           dest: "/tmp/NBInstallAnswer.conf"
+           owner: root
+           group: root
+           mode: 0755
+
+    - name: Unarchive
+      unarchive:
+        src: "{{ netbackup_download_dir }}/{{ nbutar }}"
+        dest: "{{ netbackup_download_dir }}"
+        remote_src: yes
+#      args:
+#        chdir: "{{ tmp | default('/var/tmp') }}/nbu"
+
+    - name: Get list of yum repos (to disable them temporarily)
+      ansible.builtin.command: yum -q repolist
+      register: _yum_repolist_output
+      changed_when: False
+
+
+    - name: Install netbackup VRTSnbpck package
+      yum:
+        name: "{{ netbackup_download_dir }}/VRTSnbpck.rpm"
+        enablerepo: []
+        disable_gpg_check: yes
+#        disable_repo: "{{ _yum_repolist_output.stdout_lines[1:] | map('split', ' ') | map('first') | list }}"
+        disablerepo: "rhel-8-for-x86_64-baseos-rpms,rhel-8-for-x86_64-appstream-rpms,docker-ce-stable"
+        skip_broken: "true"
+        install_repoquery: false
+        state: present
+      register: VRTSnbpck_install_result
+
+    - name: Install netbackup additional packages
+      yum:
+        name: "{{ item }}"
+        disable_gpg_check: yes
+        disablerepo: "rhel-8-for-x86_64-baseos-rpms,rhel-8-for-x86_64-appstream-rpms,docker-ce-stable"
+        skip_broken: "true"
+        install_repoquery: false
+        state: present
+      loop:
+        - "{{ netbackup_download_dir }}/VRTSpbx.rpm"
+        - "{{ netbackup_download_dir }}/VRTSnbclt.rpm"
+        #- "{{ netbackup_download_dir }}/VRTSnbjre.rpm"
+        #- "{{ netbackup_download_dir }}/VRTSnbjava.rpm"
+        - "{{ netbackup_download_dir }}/VRTSpddea.rpm"
+        - "{{ netbackup_download_dir }}/VRTSnbcfg.rpm"
+
+    - name: Cleanup
+      file:
+        path: "{{ netbackup_download_dir }}"
+        state: absent
+
+
+    - name: Add master servers to /etc/hosts
+      lineinfile:
+        line: "{% for item in nbuhosts.masterserver %}{{item}}\n{% endfor %}"
+        dest: /etc/hosts
+        state: present
+    - name: Add media servers to /etc/hosts
+      lineinfile:
+        insertafter: 'EOF'
+        line: "{% for item in nbuhosts.mediaserver %}{{item}}\n{% endfor %}"
+        dest: /etc/hosts
+    - name: Add media servers to bp.conf
+      lineinfile:
+        insertafter: '^SERVER'
+        line: "{% for item in nbuhosts.mediaserver %}MEDIA_SERVER = {{ item[16:] }}\n{% endfor %}"
+        dest: /usr/openv/netbackup/bp.conf
